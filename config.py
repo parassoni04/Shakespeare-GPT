@@ -1,0 +1,12 @@
+batch_size = 64
+block_size = 256
+embedding = 384
+n_heads = 6
+n_layers = 6
+hidden_dim = 512
+learning_rate = 0.0003
+min_lr = 0.00003
+epochs = 5000
+warmup_steps = 200
+eval_iters = 100
+vocab_size = 65
