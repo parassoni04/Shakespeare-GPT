@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Shakespeare GPT
 
 A character-level GPT-style language model implemented from scratch
