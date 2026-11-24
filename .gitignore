@@ -1,3 +1,6 @@
 __pycache__
 saved_parameters
 Experiment
+Tokenizer/
+input/
+Dataset Generator/

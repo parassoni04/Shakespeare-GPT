@@ -6,7 +6,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # =================================self-Attention==========================================
 
 class Head(nn.Module):
-    def __init__(self, embedding, head_size, block_size):
+    def __init__(self, embedding, head_size, block_size, p_dropout):
 
         super().__init__()
 
@@ -18,7 +18,7 @@ class Head(nn.Module):
 
         self.head = head_size
 
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(p_dropout)
 
     def forward(self, x):
 
@@ -53,18 +53,18 @@ class Head(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, n_heads, embedding, head_size, block_size):
+    def __init__(self, n_heads, embedding, head_size, block_size, p_dropout):
 
         super().__init__()
 
         self.head = nn.ModuleList([
-            Head(embedding, head_size, block_size)
+            Head(embedding, head_size, block_size, p_dropout)
             for _ in range(n_heads)
         ])
 
         self.projection = nn.Linear(n_heads * head_size, embedding)
 
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(p_dropout)
 
     def forward(self, x):
         # Run all attention heads independently
@@ -84,7 +84,7 @@ class MultiHeadAttention(nn.Module):
 
 class FeedForwardNetwork(nn.Module):
 
-    def __init__(self, embedding, hidden_dim):
+    def __init__(self, embedding, hidden_dim, p_dropout):
 
         super().__init__()
 
@@ -92,7 +92,7 @@ class FeedForwardNetwork(nn.Module):
             nn.Linear(embedding, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, embedding),
-            nn.Dropout(0.1)
+            nn.Dropout(p_dropout)
         )
 
     def forward(self, x):
@@ -103,7 +103,7 @@ class FeedForwardNetwork(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, embedding, n_heads, block_size):
+    def __init__(self, embedding, n_heads, block_size, p_dropout):
 
         super().__init__()
 
@@ -114,11 +114,12 @@ class Block(nn.Module):
             n_heads,
             embedding,
             head_size,
-            block_size
+            block_size,
+            p_dropout
         )
 
         # Feed Forward Network
-        self.ffwd = FeedForwardNetwork(embedding, 4 * embedding)
+        self.ffwd = FeedForwardNetwork(embedding, 4 * embedding, p_dropout)
 
         # LayerNorm
         self.ln1 = nn.LayerNorm(embedding)
@@ -138,7 +139,7 @@ class Block(nn.Module):
 
 class GPTLanguageModel(nn.Module):
 
-    def __init__(self,vocab_size, embedding, block_size, n_layers, n_heads):
+    def __init__(self,vocab_size, embedding, block_size, n_layers, n_heads, p_dropout):
 
         super().__init__()
 
@@ -148,7 +149,7 @@ class GPTLanguageModel(nn.Module):
         # Position Embedding
         self.position_embedding = nn.Embedding(block_size, embedding)
 
-        self.blocks = nn.Sequential(*[Block(embedding, n_heads, block_size) for _ in range(n_layers)])
+        self.blocks = nn.Sequential(*[Block(embedding, n_heads, block_size, p_dropout) for _ in range(n_layers)])
 
         # Final LayerNorm
         self.ln_f = nn.LayerNorm(embedding)
@@ -181,9 +182,9 @@ class GPTLanguageModel(nn.Module):
         return logits
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0):
+    def generate(self, idx, temperature=1.0):
 
-        for _ in range(max_new_tokens):
+        # for _ in range(max_new_tokens):
 
             # Keep only the most recent context
             idx_cond = idx[:, -self.position_embedding.num_embeddings:]
@@ -201,9 +202,9 @@ class GPTLanguageModel(nn.Module):
             probs = F.softmax(logits, dim=-1)
 
             # Sample the next character
-            idx_next = torch.multinomial(probs, num_samples=1)
+            idx = torch.multinomial(probs, num_samples=1)
 
             # Append the generated character
-            idx = torch.cat((idx, idx_next), dim=1)
+            # idx = torch.cat((idx, idx_next), dim=1)
 
-        return idx
+            return idx

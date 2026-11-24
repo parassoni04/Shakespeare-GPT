@@ -2,39 +2,49 @@ import torch
 import torch.nn.functional as F
 import math
 import os
+from tokenizers import Tokenizer
 
-from config import batch_size, block_size, embedding, n_heads, n_layers, hidden_dim, learning_rate, min_lr, epochs, warmup_steps, eval_iters, vocab_size
+from config import *
 import model
 from model import GPTLanguageModel
 
-from tokenizer import (build_tokenizer, encode, decode, save_tokenizer)
+from Tokenizer.character_level_tokenizer import (build_tokenizer, encode, decode, save_tokenizer)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-with open('input/input.txt', 'r', encoding = 'utf-8') as f:
+# with open('input/input.txt', 'r', encoding = 'utf-8') as f:
+# with open('input/claude_utf8.txt', 'r', encoding = 'utf-8') as f:
+with open('input/ri_data.txt', 'r', encoding = 'utf-8') as f:
     text = f.read()
 print("File Opened Successfully")
+print('Size of data : ', len(text)/1e6,'M')
+# n = int(len(text)/2)
+# text = text[:n]
+# print('Dataset Shinked')
+# print(f"Size of Data : {len(text)/1e6}M")
 
-chars = sorted(list(set(''.join(text))))
-vocab_size = len(chars)
+# build_tokenizer(text)
+tokenizer = Tokenizer.from_file("Tokenizer/bpetokenizer.json")
 
-stoi = {ch:i for i,ch in enumerate(chars)}
-itos = {i:ch for i,ch in enumerate(chars)}
+vocab_size = tokenizer.get_vocab_size()
 
-save_tokenizer(stoi)
-print("Saved Tokenizer File")
-#Encoder
-def encode(s):
-    return [stoi[c] for c in s]
+print("Tokenizer Loaded")
+print("Vocabulary Size : ", tokenizer.get_vocab_size())
 
-#Decoder
-def decode(l): # Inputs list of integers outputs string
-    return ''.join(itos[i] for i in l)
+
+def encode(text):
+
+    return tokenizer.encode(text).ids
+
+
+def decode(token_ids):
+
+    return tokenizer.decode(token_ids)
 
 # ===================================Dataset Preparation===================================
 # Train-validation split
 data = torch.tensor(encode(text), dtype = torch.long)
-split_index = int(0.9*len(data))
+split_index = int(split_ratio*len(data))
 
 train_data = data[:split_index]
 val_data = data[split_index:]
@@ -78,17 +88,16 @@ def lr_lambda(step):
 
 # ====================================Training-Loop========================================
 
-model = GPTLanguageModel(vocab_size, embedding, block_size, n_layers, n_heads).to(device)
-optimizer = torch.optim.AdamW(model.parameters(), lr = learning_rate, weight_decay = 0.01)
+model = GPTLanguageModel(vocab_size, embedding, block_size, n_layers, n_heads, p_dropout).to(device)
+optimizer = torch.optim.AdamW(model.parameters(), lr = learning_rate, weight_decay = weight_decay)
 scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,lr_lambda)
-
 print("Number of Parameters =",sum(p.numel() for p in model.parameters()))
 print("Training Started ...")
-for i in range(epochs):
+for i in range(epochs + 1):
 
     if i % 500 == 0:
             losses = estimate_loss()
-            print(f"For {i:4d}th iteration, Training Loss : {losses['train']:.4f}, Validation Loss : {losses['val']:.4f}")
+            print(f"For {i:4d}th iteration, Learning Rate : {optimizer.param_groups[0]['lr']:.2e}, Training Loss : {losses['train']:.4f}, Validation Loss : {losses['val']:.4f}")
 
             torch.save({
                 'model_state_dict': model.state_dict(),
@@ -102,6 +111,7 @@ for i in range(epochs):
                     'n_heads': n_heads
                 }
             }, f'saved_parameters/checkpoint{i}.pth')
+
 
     # Getting training batch
     x, targets = get_batch('train')
@@ -126,6 +136,8 @@ for i in range(epochs):
     scheduler.step()
 
 print("Training Completed")
+# print(f"Final Training Loss : {losses['train']:.4f}")
+# print(f"Final Validation Loss : {losses['val']:.4f}")
 
 torch.save({
             'model_state_dict': model.state_dict(),
