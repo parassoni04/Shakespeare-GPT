@@ -1,27 +1,27 @@
 import torch
 import torch.nn.functional as F
 import math
-import os
 from tokenizers import Tokenizer
 
-from config import *
 import model
 from model import GPTLanguageModel
+from config import *
 
 from Tokenizer.character_level_tokenizer import (build_tokenizer, encode, decode, save_tokenizer)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # with open('input/input.txt', 'r', encoding = 'utf-8') as f:
-# with open('input/claude_utf8.txt', 'r', encoding = 'utf-8') as f:
-with open('input/ri_data.txt', 'r', encoding = 'utf-8') as f:
+with open('input/claude_utf8.txt', 'r', encoding = 'utf-8') as f:
+# with open('input/ri_data.txt', 'r', encoding = 'utf-8') as f:
     text = f.read()
+
 print("File Opened Successfully")
 print('Size of data : ', len(text)/1e6,'M')
-# n = int(len(text)/2)
-# text = text[:n]
-# print('Dataset Shinked')
-# print(f"Size of Data : {len(text)/1e6}M")
+n = int(len(text)/3)
+text = text[:n]
+print('Dataset Shinked')
+print(f"Size of Data : {len(text)/1e6}M")
 
 # build_tokenizer(text)
 tokenizer = Tokenizer.from_file("Tokenizer/bpetokenizer.json")
@@ -41,7 +41,11 @@ def decode(token_ids):
 
     return tokenizer.decode(token_ids)
 
+print("Tokenization Completed")
+
 # ===================================Dataset Preparation===================================
+
+print("Splitting Data")
 # Train-validation split
 data = torch.tensor(encode(text), dtype = torch.long)
 split_index = int(split_ratio*len(data))
@@ -67,8 +71,9 @@ def estimate_loss():
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             x, targets = get_batch(split)
-            logits = model(x)
-            loss = F.cross_entropy(logits.transpose(1, 2),targets)
+            with torch.no_grad():
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    logits, loss = model(x, targets)
             losses[k] = loss.item()
         out[split] = losses.mean().item()
     model.train()
@@ -88,10 +93,16 @@ def lr_lambda(step):
 
 # ====================================Training-Loop========================================
 
+print("Loading Model")
 model = GPTLanguageModel(vocab_size, embedding, block_size, n_layers, n_heads, p_dropout).to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr = learning_rate, weight_decay = weight_decay)
 scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,lr_lambda)
+
+# Scaler
+scaler = torch.amp.GradScaler("cuda")
+
 print("Number of Parameters =",sum(p.numel() for p in model.parameters()))
+print("Model parameter dtype : ", next(model.parameters()).dtype)
 print("Training Started ...")
 for i in range(epochs + 1):
 
@@ -116,21 +127,23 @@ for i in range(epochs + 1):
     # Getting training batch
     x, targets = get_batch('train')
 
-    # Forward Propagation
-    logits = model(x)
-
-    # Calculate Loss
-    loss = F.cross_entropy(logits.transpose(1, 2), targets)
-
-    # Backpropagation
     optimizer.zero_grad(set_to_none=True)
-    loss.backward()
+
+    with torch.autocast(device_type="cuda", dtype=torch.float16):
+        logits, loss = model(x, targets)
+
+    # Scaled Backpropagation
+    scaler.scale(loss).backward()
+
+    # Unscaling gradients
+    scaler.unscale_(optimizer)
 
     # Graditent clipping
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
     # Update parameters
-    optimizer.step()
+    scaler.step(optimizer)
+    scaler.update()
 
     # Update Learning Rate
     scheduler.step()

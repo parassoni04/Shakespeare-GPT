@@ -1,12 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+# from config import *
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # =================================self-Attention==========================================
 
 class Head(nn.Module):
-    def __init__(self, embedding, head_size, block_size, p_dropout):
+    def __init__(self, embedding, block_size, head_size, p_dropout):
 
         super().__init__()
 
@@ -53,9 +54,11 @@ class Head(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, n_heads, embedding, head_size, block_size, p_dropout):
+    def __init__(self, embedding, block_size, n_heads, p_dropout):
 
         super().__init__()
+
+        head_size = embedding // n_heads
 
         self.head = nn.ModuleList([
             Head(embedding, head_size, block_size, p_dropout)
@@ -84,9 +87,11 @@ class MultiHeadAttention(nn.Module):
 
 class FeedForwardNetwork(nn.Module):
 
-    def __init__(self, embedding, hidden_dim, p_dropout):
+    def __init__(self, embedding, p_dropout):
 
         super().__init__()
+
+        hidden_dim = 4 * embedding
 
         self.network = nn.Sequential(
             nn.Linear(embedding, hidden_dim),
@@ -103,7 +108,7 @@ class FeedForwardNetwork(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, embedding, n_heads, block_size, p_dropout):
+    def __init__(self, embedding, block_size, n_heads, p_dropout):
 
         super().__init__()
 
@@ -113,13 +118,12 @@ class Block(nn.Module):
         self.sa = MultiHeadAttention(
             n_heads,
             embedding,
-            head_size,
             block_size,
             p_dropout
         )
 
         # Feed Forward Network
-        self.ffwd = FeedForwardNetwork(embedding, 4 * embedding, p_dropout)
+        self.ffwd = FeedForwardNetwork(embedding, p_dropout)
 
         # LayerNorm
         self.ln1 = nn.LayerNorm(embedding)
@@ -139,7 +143,7 @@ class Block(nn.Module):
 
 class GPTLanguageModel(nn.Module):
 
-    def __init__(self,vocab_size, embedding, block_size, n_layers, n_heads, p_dropout):
+    def __init__(self, vocab_size, embedding, block_size, n_layers, n_heads, p_dropout):
 
         super().__init__()
 
@@ -149,7 +153,7 @@ class GPTLanguageModel(nn.Module):
         # Position Embedding
         self.position_embedding = nn.Embedding(block_size, embedding)
 
-        self.blocks = nn.Sequential(*[Block(embedding, n_heads, block_size, p_dropout) for _ in range(n_layers)])
+        self.blocks = nn.Sequential(*[Block(embedding, block_size, n_heads, p_dropout) for _ in range(n_layers)])
 
         # Final LayerNorm
         self.ln_f = nn.LayerNorm(embedding)
@@ -157,7 +161,7 @@ class GPTLanguageModel(nn.Module):
         # Language Model Head
         self.lm_head = nn.Linear(embedding, vocab_size)
 
-    def forward(self, idx):
+    def forward(self, idx, targets = None):
         B, T = idx.shape
 
         # Token Embedding
@@ -177,12 +181,18 @@ class GPTLanguageModel(nn.Module):
         x = self.ln_f(x)
 
         # Generate Logits
-        logits = self.lm_head(x)
+        if targets == None:
+            return logits
+        else:
+            B, T, C = logits.shape
+            logits = logits.view(B * T, C)
+            targets = targets.view(B * T)
+            loss = F.cross_entropy(logits, targets)
 
-        return logits
+            return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, temperature=1.0):
+    def generate(self, idx, temperature):
 
         # for _ in range(max_new_tokens):
 

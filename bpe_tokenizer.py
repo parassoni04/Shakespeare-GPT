@@ -56,11 +56,12 @@ def load_tokenizer(file_path="Tokenizer/bpetokenizer.json"):
 # Testing
 if __name__ == "__main__":
 
-    dataset_path = "input/ri_data.txt"
+    # dataset_path = "input/ri_data.txt"
+    dataset_path = "input/claude_utf8.txt"
 
     train_tokenizer(dataset_path)
 
-    test_text = "Fang Yuan understood his situation clearly, but even in the face of death his expression did not change, it was calm."
+    test_text = "Fang Yuan obtained the immortal gu"
 
     encoded = encode(test_text)
 
